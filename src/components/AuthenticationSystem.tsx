@@ -1,483 +1,402 @@
-import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { useToast } from '@/hooks/use-toast';
-import { InterviewFlow } from '@/components/InterviewFlow';
-import { 
-  UserCheck, 
-  Shield, 
-  Briefcase, 
-  GraduationCap, 
-  Clock, 
+import React, { useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useQuery, useQueries, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
+import {
+  getSession,
+  logout as clearAuthSession,
+  type ExpertProfile,
+} from "@/lib/authStorage";
+import {
+  createInterview,
+  fetchCandidateInterviews,
+  fetchExpertDashboardStats,
+  fetchExpertProfile,
+  fetchInterviewAssignments,
+  fetchQuestionsBySession,
+  isBackendUserId,
+  type InterviewOut,
+} from "@/lib/dashboardApi";
+import {
+  Shield,
+  Briefcase,
+  Clock,
   Star,
   LogOut,
   Plus,
   Calendar,
   Award,
   Users,
-  BookOpen
-} from 'lucide-react';
-
-interface Education {
-  degree: string;
-  field: string;
-  institution: string;
-  year: number;
-  grade: string;
-}
-
-interface Experience {
-  company: string;
-  role: string;
-  duration_months: number;
-  projects: string[];
-  skills: string[];
-}
-
-interface Candidate {
-  id: string;
-  name: string;
-  job_role: string;
-  education: Education[];
-  experience: Experience[];
-  type: 'candidate';
-}
-
-interface Expert {
-  id: string;
-  name: string;
-  expertise: string;
-  seniority: number;
-  type: 'expert';
-}
-
-interface Interview {
-  id: string;
-  job_role: string;
-  status: 'pending' | 'completed';
-  date: string;
-  score?: number;
-}
-
-type User = Candidate | Expert;
+  BookOpen,
+  Loader2,
+} from "lucide-react";
 
 export const AuthenticationSystem: React.FC = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [userType, setUserType] = useState<'candidate' | 'expert'>('candidate');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showInterview, setShowInterview] = useState(false);
+  const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Candidate form state
-  const [candidateForm, setCandidateForm] = useState({
-    name: '',
-    job_role: '',
-    education: [{
-      degree: '',
-      field: '',
-      institution: '',
-      year: new Date().getFullYear(),
-      grade: ''
-    }],
-    experience: [{
-      company: '',
-      role: '',
-      duration_months: 0,
-      projects: [''],
-      skills: ['']
-    }]
+  const user = getSession()?.profile ?? null;
+  const backendLinked = Boolean(user && isBackendUserId(user.id));
+  const candidateId = user?.type === "candidate" ? user.id : "";
+  const expertId = user?.type === "expert" ? user.id : "";
+
+  const candidateInterviewsQuery = useQuery({
+    queryKey: ["candidate-interviews", candidateId],
+    queryFn: () => fetchCandidateInterviews(candidateId),
+    enabled: Boolean(user?.type === "candidate" && backendLinked && candidateId),
   });
 
-  // Expert form state
-  const [expertForm, setExpertForm] = useState({
-    name: '',
-    expertise: '',
-    seniority: 1
+  const expertStatsQuery = useQuery({
+    queryKey: ["expert-dashboard-stats", expertId],
+    queryFn: () => fetchExpertDashboardStats(expertId),
+    enabled: Boolean(user?.type === "expert" && backendLinked && expertId),
   });
 
-  // Mock interviews data
-  const [interviews] = useState<Interview[]>([
-    { id: '1', job_role: 'Software Engineer', status: 'completed', date: '2024-01-15', score: 85 },
-    { id: '2', job_role: 'Data Scientist', status: 'pending', date: '2024-01-20' },
-  ]);
+  const expertRemoteQuery = useQuery({
+    queryKey: ["expert-profile-remote", expertId],
+    queryFn: () => fetchExpertProfile(expertId),
+    enabled: Boolean(user?.type === "expert" && backendLinked && expertId),
+  });
 
-  useEffect(() => {
-    const savedUser = localStorage.getItem('drdo_user');
-    if (savedUser) {
-      try {
-        const userData = JSON.parse(savedUser);
-        setUser(userData);
-        setIsLoggedIn(true);
-      } catch (error) {
-        console.error('Error parsing saved user data:', error);
-        localStorage.removeItem('drdo_user');
-      }
-    }
-  }, []);
+  const interviewRows = useMemo((): InterviewOut[] => {
+    if (!backendLinked || user?.type !== "candidate") return [];
+    return candidateInterviewsQuery.data ?? [];
+  }, [backendLinked, user?.type, candidateInterviewsQuery.data]);
 
-  const handleCandidateRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const newCandidate: Candidate = {
-        id: Math.random().toString(36).substr(2, 9),
-        ...candidateForm,
-        type: 'candidate'
-      };
-
-      localStorage.setItem('drdo_user', JSON.stringify(newCandidate));
-      setUser(newCandidate);
-      setIsLoggedIn(true);
-
-      toast({
-        title: "Registration Successful!",
-        description: "Welcome to DRDO RAC Interview System",
-      });
-    } catch (error) {
-      toast({
-        title: "Registration Failed",
-        description: "Please try again later",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleExpertRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-
-    try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const newExpert: Expert = {
-        id: Math.random().toString(36).substr(2, 9),
-        ...expertForm,
-        type: 'expert'
-      };
-
-      localStorage.setItem('drdo_user', JSON.stringify(newExpert));
-      setUser(newExpert);
-      setIsLoggedIn(true);
-
-      toast({
-        title: "Registration Successful!",
-        description: "Welcome to DRDO RAC Interview System",
-      });
-    } catch (error) {
-      toast({
-        title: "Registration Failed",
-        description: "Please try again later",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const expertForUi = useMemo((): ExpertProfile | null => {
+    if (!user || user.type !== "expert") return null;
+    const remote = expertRemoteQuery.data;
+    if (!remote) return user as ExpertProfile;
+    return {
+      ...(user as ExpertProfile),
+      name: remote.name,
+      expertise: remote.expertise,
+      seniority: remote.seniority,
+    };
+  }, [user, expertRemoteQuery.data]);
 
   const handleLogout = () => {
-    localStorage.removeItem('drdo_user');
-    setUser(null);
-    setIsLoggedIn(false);
-    setUserType('candidate');
-    setShowInterview(false);
+    clearAuthSession();
     toast({
       title: "Logged out successfully",
       description: "Thank you for using DRDO RAC Interview System",
     });
+    navigate("/login", { replace: true });
   };
 
-  const addEducation = () => {
-    setCandidateForm({
-      ...candidateForm,
-      education: [...candidateForm.education, {
-        degree: '',
-        field: '',
-        institution: '',
-        year: new Date().getFullYear(),
-        grade: ''
-      }]
-    });
-  };
-
-  const addExperience = () => {
-    setCandidateForm({
-      ...candidateForm,
-      experience: [...candidateForm.experience, {
-        company: '',
-        role: '',
-        duration_months: 0,
-        projects: [''],
-        skills: ['']
-      }]
-    });
-  };
-
-  if (isLoggedIn && user) {
-    if (showInterview && user.type === 'candidate') {
-      return <InterviewFlow onBack={() => setShowInterview(false)} />;
-    }
-
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-background via-muted/20 to-primary/5">
-        {/* Header */}
-        <header className="border-b bg-card/50 backdrop-blur-sm">
-          <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Shield className="h-8 w-8 text-primary" />
-              <div>
-                <h1 className="text-xl font-bold">DRDO RAC</h1>
-                <p className="text-sm text-muted-foreground">Interview System</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <Badge variant="secondary" className="capitalize">
-                {user.type}
-              </Badge>
-              <Button variant="ghost" onClick={handleLogout}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Logout
-              </Button>
-            </div>
-          </div>
-        </header>
-
-        {/* Dashboard */}
-        <main className="container mx-auto px-4 py-8">
-          <div className="mb-8 animate-fade-in">
-            <h2 className="text-3xl font-bold mb-2">
-              Welcome back, {user.name}
-            </h2>
-            <p className="text-muted-foreground">
-              {user.type === 'candidate' 
-                ? 'Continue your interview journey' 
-                : 'Manage interviews and evaluate candidates'
-              }
-            </p>
-          </div>
-
-          {user.type === 'candidate' ? (
-            <CandidateDashboard 
-              candidate={user as Candidate} 
-              interviews={interviews} 
-              onStartInterview={() => setShowInterview(true)}
-            />
-          ) : (
-            <ExpertDashboard expert={user as Expert} />
-          )}
-        </main>
-      </div>
-    );
+  if (!user) {
+    return null;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-hero flex items-center justify-center p-4">
-      <Card className="w-full max-w-2xl shadow-xl bg-gradient-card border-0 animate-slide-up">
-        <CardHeader className="text-center pb-8">
-          <div className="flex justify-center mb-4">
-            <Shield className="h-16 w-16 text-primary animate-glow" />
+    <div className="min-h-screen bg-gradient-to-br from-background via-muted/20 to-primary/5">
+      <header className="border-b bg-card/50 backdrop-blur-sm">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Shield className="h-8 w-8 text-primary" />
+            <div>
+              <h1 className="text-xl font-bold">DRDO RAC</h1>
+              <p className="text-sm text-muted-foreground">Interview System</p>
+            </div>
           </div>
-          <CardTitle className="text-3xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-            DRDO RAC Interview System
-          </CardTitle>
-          <CardDescription className="text-lg">
-            Advanced AI-Driven Assessment Platform
-          </CardDescription>
-        </CardHeader>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-muted-foreground hidden sm:inline truncate max-w-[200px]">
+              {user.email}
+            </span>
+            <Badge variant="secondary" className="capitalize">
+              {user.type}
+            </Badge>
+            <Button variant="ghost" onClick={handleLogout}>
+              <LogOut className="mr-2 h-4 w-4" />
+              Logout
+            </Button>
+          </div>
+        </div>
+      </header>
 
-        <CardContent>
-          <Tabs value={userType} onValueChange={(value) => setUserType(value as 'candidate' | 'expert')}>
-            <TabsList className="grid w-full grid-cols-2 mb-8">
-              <TabsTrigger value="candidate" className="flex items-center gap-2">
-                <UserCheck className="h-4 w-4" />
-                Candidate
-              </TabsTrigger>
-              <TabsTrigger value="expert" className="flex items-center gap-2">
-                <Shield className="h-4 w-4" />
-                Expert
-              </TabsTrigger>
-            </TabsList>
+      <main className="container mx-auto px-4 py-8">
+        <div className="mb-8 animate-fade-in">
+          <h2 className="text-3xl font-bold mb-2">Welcome back, {user.name}</h2>
+          <p className="text-muted-foreground">
+            {user.type === "candidate"
+              ? "Continue your interview journey"
+              : "Manage interviews and evaluate candidates"}
+          </p>
+        </div>
 
-            <TabsContent value="candidate" className="space-y-6">
-              <form onSubmit={handleCandidateRegister} className="space-y-6">
-                <div className="grid gap-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="name">Full Name</Label>
-                      <Input
-                        id="name"
-                        value={candidateForm.name}
-                        onChange={(e) => setCandidateForm({...candidateForm, name: e.target.value})}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="job_role">Target Job Role</Label>
-                      <Input
-                        id="job_role"
-                        value={candidateForm.job_role}
-                        onChange={(e) => setCandidateForm({...candidateForm, job_role: e.target.value})}
-                        placeholder="e.g., Software Engineer"
-                        required
-                      />
-                    </div>
-                  </div>
+        {!backendLinked && (
+          <p className="mb-6 text-sm text-muted-foreground rounded-lg border border-dashed bg-muted/30 px-4 py-3">
+            This account is not linked to the live API (missing server profile ID). Register a new
+            account to see real interview stats and assignments.
+          </p>
+        )}
 
-                  <Separator />
-                  
-                  <div>
-                    <div className="flex items-center justify-between mb-4">
-                      <Label className="text-base font-semibold flex items-center gap-2">
-                        <GraduationCap className="h-4 w-4" />
-                        Education
-                      </Label>
-                      <Button type="button" variant="outline" size="sm" onClick={addEducation}>
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add
-                      </Button>
-                    </div>
-                    
-                    {candidateForm.education.map((edu, index) => (
-                      <Card key={index} className="mb-4">
-                        <CardContent className="pt-4">
-                          <div className="grid grid-cols-2 gap-4">
-                            <Input
-                              placeholder="Degree"
-                              value={edu.degree}
-                              onChange={(e) => {
-                                const updated = [...candidateForm.education];
-                                updated[index].degree = e.target.value;
-                                setCandidateForm({...candidateForm, education: updated});
-                              }}
-                            />
-                            <Input
-                              placeholder="Field of Study"
-                              value={edu.field}
-                              onChange={(e) => {
-                                const updated = [...candidateForm.education];
-                                updated[index].field = e.target.value;
-                                setCandidateForm({...candidateForm, education: updated});
-                              }}
-                            />
-                            <Input
-                              placeholder="Institution"
-                              value={edu.institution}
-                              onChange={(e) => {
-                                const updated = [...candidateForm.education];
-                                updated[index].institution = e.target.value;
-                                setCandidateForm({...candidateForm, education: updated});
-                              }}
-                            />
-                            <Input
-                              placeholder="Grade/CGPA"
-                              value={edu.grade}
-                              onChange={(e) => {
-                                const updated = [...candidateForm.education];
-                                updated[index].grade = e.target.value;
-                                setCandidateForm({...candidateForm, education: updated});
-                              }}
-                            />
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </div>
+        {user.type === "candidate" && backendLinked && candidateInterviewsQuery.isError && (
+          <p className="mb-4 text-sm text-destructive">
+            {candidateInterviewsQuery.error instanceof Error
+              ? candidateInterviewsQuery.error.message
+              : "Could not load interviews from the server."}
+          </p>
+        )}
 
-                <Button 
-                  type="submit" 
-                  variant="hero" 
-                  size="xl" 
-                  className="w-full" 
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "Registering..." : "Register as Candidate"}
-                </Button>
-              </form>
-            </TabsContent>
+        {user.type === "expert" && backendLinked && expertStatsQuery.isError && (
+          <p className="mb-4 text-sm text-destructive">
+            {expertStatsQuery.error instanceof Error
+              ? expertStatsQuery.error.message
+              : "Could not load expert statistics from the server."}
+          </p>
+        )}
 
-            <TabsContent value="expert" className="space-y-6">
-              <form onSubmit={handleExpertRegister} className="space-y-6">
-                <div className="grid gap-4">
-                  <div>
-                    <Label htmlFor="expert_name">Full Name</Label>
-                    <Input
-                      id="expert_name"
-                      value={expertForm.name}
-                      onChange={(e) => setExpertForm({...expertForm, name: e.target.value})}
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="expertise">Area of Expertise</Label>
-                    <Input
-                      id="expertise"
-                      value={expertForm.expertise}
-                      onChange={(e) => setExpertForm({...expertForm, expertise: e.target.value})}
-                      placeholder="e.g., Signal Processing, Cybersecurity"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="seniority">Seniority Level (1-5)</Label>
-                    <Input
-                      id="seniority"
-                      type="number"
-                      min="1"
-                      max="5"
-                      value={expertForm.seniority}
-                      onChange={(e) => setExpertForm({...expertForm, seniority: parseInt(e.target.value)})}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <Button 
-                  type="submit" 
-                  variant="hero" 
-                  size="xl" 
-                  className="w-full" 
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "Registering..." : "Register as Expert"}
-                </Button>
-              </form>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
+        {user.type === "candidate" ? (
+          <CandidateDashboard
+            candidateId={candidateId}
+            interviewRows={interviewRows}
+            loading={backendLinked && candidateInterviewsQuery.isPending}
+            backendLinked={backendLinked}
+          />
+        ) : (
+          expertForUi && (
+            <ExpertDashboard
+              expert={expertForUi}
+              assignedInterviews={expertStatsQuery.data?.assignedInterviews ?? 0}
+              completedReviews={expertStatsQuery.data?.completedReviews ?? 0}
+              statsLoading={backendLinked && expertStatsQuery.isPending}
+              backendLinked={backendLinked}
+            />
+          )
+        )}
+      </main>
     </div>
   );
 };
 
-const CandidateDashboard: React.FC<{ 
-  candidate: Candidate; 
-  interviews: Interview[];
-  onStartInterview: () => void;
-}> = ({ candidate, interviews, onStartInterview }) => {
+const CandidateInterviewRow: React.FC<{
+  row: InterviewOut;
+}> = ({ row }) => {
+  const navigate = useNavigate();
+
+  const assignmentsQuery = useQuery({
+    queryKey: ["interview-assignments", row.id],
+    queryFn: () => fetchInterviewAssignments(row.id),
+    enabled: Boolean(row.id),
+  });
+
+  const questionsQuery = useQuery({
+    queryKey: ["questions-session", row.id],
+    queryFn: () => fetchQuestionsBySession(row.id),
+    enabled: Boolean(row.id),
+  });
+
+  const expertIds = useMemo(() => {
+    const list = assignmentsQuery.data ?? [];
+    return [...new Set(list.map((a) => a.expert_id))];
+  }, [assignmentsQuery.data]);
+
+  const expertQueries = useQueries({
+    queries: expertIds.map((id) => ({
+      queryKey: ["expert", id],
+      queryFn: () => fetchExpertProfile(id),
+      enabled: expertIds.length > 0,
+    })),
+  });
+
+  const expertNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    expertIds.forEach((id, i) => {
+      const e = expertQueries[i]?.data;
+      m.set(id, e?.name ?? id.slice(0, 8) + "…");
+    });
+    return m;
+  }, [expertIds, expertQueries]);
+
+  const assignments = assignmentsQuery.data ?? [];
+  const qCount = questionsQuery.data?.length ?? 0;
+  const canStart = qCount > 0 && row.score == null;
+  const completed = row.score != null;
+
+  const openInterview = () => {
+    const params = new URLSearchParams({
+      jobRole: row.job_role,
+    });
+    navigate(`/interview/${row.id}?${params.toString()}`);
+  };
+
+  return (
+    <div className="flex flex-col gap-4 p-4 border rounded-lg md:flex-row md:items-start md:justify-between">
+      <div className="flex items-start gap-4 min-w-0">
+        <Briefcase className="h-6 w-6 text-primary shrink-0 mt-0.5" />
+        <div className="min-w-0 space-y-2">
+          <p className="font-semibold">{row.job_role}</p>
+          <p className="text-sm text-muted-foreground">
+            {row.time ? new Date(row.time).toLocaleString() : "—"}
+          </p>
+          <div className="flex flex-wrap gap-2 items-center text-sm">
+            <Badge variant={completed ? "default" : "secondary"}>
+              {completed ? "completed" : "pending"}
+            </Badge>
+            {row.score != null && (
+              <Badge
+                variant="outline"
+                className="bg-success/10 text-success border-success/20"
+              >
+                {row.score}%
+              </Badge>
+            )}
+            <span className="text-muted-foreground">
+              Questions:{" "}
+              {questionsQuery.isPending ? "…" : qCount}
+            </span>
+          </div>
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p className="font-medium text-foreground">Assigned experts (by priority)</p>
+            {assignmentsQuery.isPending ? (
+              <p>Loading assignments…</p>
+            ) : assignments.length === 0 ? (
+              <p>No assignment rows yet.</p>
+            ) : (
+              <ul className="list-disc pl-4">
+                {[...assignments]
+                  .sort((a, b) => a.priority - b.priority)
+                  .map((a) => (
+                    <li key={a.id}>
+                      {expertNameById.get(a.expert_id) ?? a.expert_id} (priority{" "}
+                      {a.priority})
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+      <div className="shrink-0 flex flex-col gap-2 md:items-end">
+        <Button
+          variant="hero"
+          size="sm"
+          disabled={!canStart}
+          onClick={openInterview}
+        >
+          {completed
+            ? "Completed"
+            : canStart
+              ? "Start interview"
+              : "Waiting for questions"}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
+const CandidateDashboard: React.FC<{
+  candidateId: string;
+  interviewRows: InterviewOut[];
+  loading: boolean;
+  backendLinked: boolean;
+}> = ({ candidateId, interviewRows, loading, backendLinked }) => {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [jobRole, setJobRole] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const scored = interviewRows.filter((i) => i.score != null);
+  const avg =
+    scored.length > 0
+      ? Math.round(
+          scored.reduce((acc, i) => acc + (i.score ?? 0), 0) / scored.length
+        )
+      : 0;
+
+  const handleRequestInterview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const role = jobRole.trim();
+    if (role.length < 2) {
+      toast({
+        title: "Job role required",
+        description: "Enter a job role (at least 2 characters).",
+        variant: "destructive",
+      });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const payload: {
+        candidate_id: string;
+        job_role: string;
+        time?: string | null;
+      } = {
+        candidate_id: candidateId,
+        job_role: role,
+      };
+      if (scheduledAt) {
+        const d = new Date(scheduledAt);
+        if (!Number.isNaN(d.getTime())) {
+          payload.time = d.toISOString();
+        }
+      }
+      await createInterview(payload);
+      await queryClient.invalidateQueries({
+        queryKey: ["candidate-interviews", candidateId],
+      });
+      setRequestOpen(false);
+      setJobRole("");
+      setScheduledAt("");
+      toast({
+        title: "Interview requested",
+        description: "Experts have been assigned. They can add questions next.",
+      });
+    } catch (err) {
+      toast({
+        title: "Request failed",
+        description: err instanceof Error ? err.message : "Could not create interview.",
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const mappedInterviews = useMemo(
+    () =>
+      [...interviewRows].sort((a, b) =>
+        b.time.localeCompare(a.time)
+      ),
+    [interviewRows]
+  );
+
   return (
     <div className="grid gap-8">
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="bg-gradient-card">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Total Interviews</p>
-                <p className="text-3xl font-bold">{interviews.length}</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Total Interviews
+                </p>
+                <p className="text-3xl font-bold tabular-nums">
+                  {loading ? "…" : interviewRows.length}
+                </p>
               </div>
               <Calendar className="h-8 w-8 text-primary" />
             </div>
@@ -489,8 +408,10 @@ const CandidateDashboard: React.FC<{
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Completed</p>
-                <p className="text-3xl font-bold text-success">
-                  {interviews.filter(i => i.status === 'completed').length}
+                <p className="text-3xl font-bold text-success tabular-nums">
+                  {loading
+                    ? "…"
+                    : interviewRows.filter((i) => i.score != null).length}
                 </p>
               </div>
               <Award className="h-8 w-8 text-success" />
@@ -502,9 +423,11 @@ const CandidateDashboard: React.FC<{
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Average Score</p>
-                <p className="text-3xl font-bold text-primary">
-                  {Math.round(interviews.filter(i => i.score).reduce((acc, i) => acc + (i.score || 0), 0) / interviews.filter(i => i.score).length) || 0}
+                <p className="text-sm font-medium text-muted-foreground">
+                  Average Score
+                </p>
+                <p className="text-3xl font-bold text-primary tabular-nums">
+                  {loading ? "…" : avg}
                 </p>
               </div>
               <Star className="h-8 w-8 text-primary" />
@@ -513,18 +436,66 @@ const CandidateDashboard: React.FC<{
         </Card>
       </div>
 
-      {/* Quick Actions */}
       <Card>
         <CardHeader>
           <CardTitle>Quick Actions</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4">
-            <Button variant="hero" size="lg" onClick={onStartInterview}>
-              <Plus className="mr-2 h-4 w-4" />
-              Start New Interview
-            </Button>
-            <Button variant="outline" size="lg">
+          <div className="flex flex-wrap gap-4">
+            <Dialog open={requestOpen} onOpenChange={setRequestOpen}>
+              <DialogTrigger asChild>
+                <Button variant="hero" size="lg" disabled={!backendLinked}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Request interview
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <form onSubmit={handleRequestInterview}>
+                  <DialogHeader>
+                    <DialogTitle>Request interview</DialogTitle>
+                    <DialogDescription>
+                      Creates a session and assigns the top matching experts. Add a
+                      job role; optional scheduled time is sent to the API.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="req-job-role">Job role</Label>
+                      <Input
+                        id="req-job-role"
+                        value={jobRole}
+                        onChange={(e) => setJobRole(e.target.value)}
+                        placeholder="e.g. Software Engineer"
+                        required
+                        minLength={2}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="req-time">Scheduled time (optional)</Label>
+                      <Input
+                        id="req-time"
+                        type="datetime-local"
+                        value={scheduledAt}
+                        onChange={(e) => setScheduledAt(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button type="submit" disabled={submitting}>
+                      {submitting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Submitting…
+                        </>
+                      ) : (
+                        "Submit request"
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+            <Button variant="outline" size="lg" disabled>
               <BookOpen className="mr-2 h-4 w-4" />
               View Results
             </Button>
@@ -532,53 +503,57 @@ const CandidateDashboard: React.FC<{
         </CardContent>
       </Card>
 
-      {/* Interview History */}
       <Card>
         <CardHeader>
           <CardTitle>Interview History</CardTitle>
-          <CardDescription>Your recent assessment sessions</CardDescription>
+          <CardDescription>
+            Assigned experts and question readiness per session
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {interviews.map((interview) => (
-              <div key={interview.id} className="flex items-center justify-between p-4 border rounded-lg">
-                <div className="flex items-center gap-4">
-                  <Briefcase className="h-6 w-6 text-primary" />
-                  <div>
-                    <p className="font-semibold">{interview.job_role}</p>
-                    <p className="text-sm text-muted-foreground">{interview.date}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Badge variant={interview.status === 'completed' ? 'default' : 'secondary'}>
-                    {interview.status}
-                  </Badge>
-                  {interview.score && (
-                    <Badge variant="outline" className="bg-success/10 text-success border-success/20">
-                      {interview.score}%
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          {loading ? (
+            <p className="text-sm text-muted-foreground py-6">Loading history…</p>
+          ) : mappedInterviews.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6">No interviews yet. Request one above.</p>
+          ) : (
+            <div className="space-y-4">
+              {mappedInterviews.map((row) => (
+                <CandidateInterviewRow key={row.id} row={row} />
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
   );
 };
 
-const ExpertDashboard: React.FC<{ expert: Expert }> = ({ expert }) => {
+const ExpertDashboard: React.FC<{
+  expert: ExpertProfile;
+  assignedInterviews: number;
+  completedReviews: number;
+  statsLoading: boolean;
+  backendLinked: boolean;
+}> = ({
+  expert,
+  assignedInterviews,
+  completedReviews,
+  statsLoading,
+  backendLinked,
+}) => {
   return (
     <div className="grid gap-8">
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="bg-gradient-card">
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Assigned Interviews</p>
-                <p className="text-3xl font-bold">12</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Assigned Interviews
+                </p>
+                <p className="text-3xl font-bold tabular-nums">
+                  {statsLoading ? "…" : assignedInterviews}
+                </p>
               </div>
               <Users className="h-8 w-8 text-primary" />
             </div>
@@ -589,8 +564,12 @@ const ExpertDashboard: React.FC<{ expert: Expert }> = ({ expert }) => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Completed Reviews</p>
-                <p className="text-3xl font-bold text-success">8</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Completed Reviews
+                </p>
+                <p className="text-3xl font-bold text-success tabular-nums">
+                  {statsLoading ? "…" : completedReviews}
+                </p>
               </div>
               <Award className="h-8 w-8 text-success" />
             </div>
@@ -601,8 +580,12 @@ const ExpertDashboard: React.FC<{ expert: Expert }> = ({ expert }) => {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-muted-foreground">Expertise Level</p>
-                <p className="text-3xl font-bold text-primary">{expert.seniority}/5</p>
+                <p className="text-sm font-medium text-muted-foreground">
+                  Expertise Level
+                </p>
+                <p className="text-3xl font-bold text-primary tabular-nums">
+                  {expert.seniority}/5
+                </p>
               </div>
               <Star className="h-8 w-8 text-primary" />
             </div>
@@ -610,34 +593,63 @@ const ExpertDashboard: React.FC<{ expert: Expert }> = ({ expert }) => {
         </Card>
       </div>
 
-      {/* Quick Actions */}
       <Card>
         <CardHeader>
           <CardTitle>Expert Tools</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4">
-            <Button variant="hero" size="lg">
-              <Users className="mr-2 h-4 w-4" />
-              Review Candidates
-            </Button>
-            <Button variant="outline" size="lg">
-              <BookOpen className="mr-2 h-4 w-4" />
-              Manage Questions
-            </Button>
-            <Button variant="secondary" size="lg">
-              <Clock className="mr-2 h-4 w-4" />
-              Active Interviews
-            </Button>
-            <Button variant="outline" size="lg">
-              <Award className="mr-2 h-4 w-4" />
-              Assessment History
-            </Button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {backendLinked ? (
+              <>
+                <Button variant="hero" size="lg" asChild>
+                  <Link to="/expert/assignments">
+                    <Users className="mr-2 h-4 w-4" />
+                    My assignments
+                  </Link>
+                </Button>
+                <Button variant="outline" size="lg" asChild>
+                  <Link to="/expert/assignments">
+                    <BookOpen className="mr-2 h-4 w-4" />
+                    Add questions (pick session)
+                  </Link>
+                </Button>
+                <Button variant="secondary" size="lg" asChild>
+                  <Link to="/expert/assignments">
+                    <Clock className="mr-2 h-4 w-4" />
+                    Active sessions
+                  </Link>
+                </Button>
+                <Button variant="outline" size="lg" asChild>
+                  <Link to="/expert/assignments">
+                    <Award className="mr-2 h-4 w-4" />
+                    Assessment history
+                  </Link>
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="hero" size="lg" disabled>
+                  <Users className="mr-2 h-4 w-4" />
+                  My assignments
+                </Button>
+                <Button variant="outline" size="lg" disabled>
+                  <BookOpen className="mr-2 h-4 w-4" />
+                  Add questions (pick session)
+                </Button>
+                <Button variant="secondary" size="lg" disabled>
+                  <Clock className="mr-2 h-4 w-4" />
+                  Active sessions
+                </Button>
+                <Button variant="outline" size="lg" disabled>
+                  <Award className="mr-2 h-4 w-4" />
+                  Assessment history
+                </Button>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
 
-      {/* Expert Profile */}
       <Card>
         <CardHeader>
           <CardTitle>Your Expertise</CardTitle>
