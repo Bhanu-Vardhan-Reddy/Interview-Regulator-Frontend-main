@@ -1,18 +1,33 @@
-import { useMemo } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Briefcase } from "lucide-react";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import {
+  deleteInterview,
   fetchExpertProfile,
   fetchInterviewAssignments,
   fetchQuestionsBySession,
   type InterviewOut,
 } from "@/lib/dashboardApi";
+import { isInterviewSubmitted } from "@/lib/interviewSubmissionLock";
 
 export default function CandidateInterviewRow({ row }: { row: InterviewOut }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const assignmentsQuery = useQuery({
     queryKey: ["interview-assignments", row.id],
@@ -50,12 +65,39 @@ export default function CandidateInterviewRow({ row }: { row: InterviewOut }) {
 
   const assignments = assignmentsQuery.data ?? [];
   const qCount = questionsQuery.data?.length ?? 0;
-  const canStart = qCount > 0 && row.score == null;
+  const scheduledMs = row.time ? new Date(row.time).getTime() : NaN;
+  const isScheduledInFuture = Number.isFinite(scheduledMs) && scheduledMs > Date.now();
+  const submitted = isInterviewSubmitted(row.id);
+  const canStart = qCount > 0 && row.score == null && !isScheduledInFuture && !submitted;
   const completed = row.score != null;
+  const canCancel = !completed && !submitted;
 
   const openInterview = () => {
     const params = new URLSearchParams({ jobRole: row.job_role });
     navigate(`/interview/${row.id}?${params.toString()}`);
+  };
+
+  const handleCancel = async () => {
+    setCancelling(true);
+    try {
+      await deleteInterview(row.id);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["candidate-interviews"] }),
+        queryClient.invalidateQueries({ queryKey: ["candidate-interviews", row.candidate_id] }),
+      ]);
+      queryClient.removeQueries({ queryKey: ["interview-assignments", row.id] });
+      queryClient.removeQueries({ queryKey: ["questions-session", row.id] });
+      toast({ title: "Interview cancelled" });
+      setConfirmOpen(false);
+    } catch (e) {
+      toast({
+        title: "Cancel failed",
+        description: e instanceof Error ? e.message : "Could not cancel interview.",
+        variant: "destructive",
+      });
+    } finally {
+      setCancelling(false);
+    }
   };
 
   return (
@@ -69,7 +111,7 @@ export default function CandidateInterviewRow({ row }: { row: InterviewOut }) {
           </p>
           <div className="flex flex-wrap gap-2 items-center text-sm">
             <Badge variant={completed ? "default" : "secondary"}>
-              {completed ? "completed" : "pending"}
+              {completed ? "completed" : submitted ? "submitted" : "pending"}
             </Badge>
             {row.score != null && (
               <Badge
@@ -110,9 +152,44 @@ export default function CandidateInterviewRow({ row }: { row: InterviewOut }) {
           disabled={!canStart}
           onClick={openInterview}
         >
-          {completed ? "Completed" : canStart ? "Start interview" : "Waiting for questions"}
+          {completed
+            ? "Completed"
+            : submitted
+              ? "Submitted"
+            : isScheduledInFuture
+              ? "Scheduled"
+              : canStart
+                ? "Start interview"
+                : "Waiting for questions"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={!canCancel || cancelling}
+          onClick={() => setConfirmOpen(true)}
+        >
+          {submitted ? "Locked" : "Cancel"}
         </Button>
       </div>
+
+      <Dialog open={confirmOpen} onOpenChange={(v) => !cancelling && setConfirmOpen(v)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel this interview?</DialogTitle>
+            <DialogDescription>
+              This will delete the interview session and related data on the server.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={cancelling}>
+              Keep
+            </Button>
+            <Button variant="destructive" onClick={handleCancel} disabled={cancelling}>
+              {cancelling ? "Cancelling…" : "Cancel interview"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

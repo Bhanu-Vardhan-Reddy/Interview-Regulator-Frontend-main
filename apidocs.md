@@ -229,6 +229,19 @@ Notes:
   - `src/pages/ExpertSessionQuestions.tsx`
   - `src/lib/dashboardApi.ts` (dashboard stats)
 
+### Cancel (delete) interview session
+
+- **Purpose**: Candidate cancels a pending interview session (implemented as a hard delete in the backend).
+- **Method + path**: `DELETE /interview/{interviewId}`
+- **Inputs**
+  - **Path params**
+    - `interviewId`: string (UUID)
+- **Outputs**
+  - **200 OK**: typically empty JSON `{}` (frontend does not depend on a response body)
+
+- **Used by**
+  - `src/components/candidate/CandidateInterviewRow.tsx`
+
 ### List assignments for expert
 
 - **Purpose**: Show which sessions are assigned to an expert.

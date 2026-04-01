@@ -18,6 +18,7 @@ import {
   submitAnswer,
   submitInterviewForScoring,
 } from "@/lib/dashboardApi";
+import { markInterviewSubmitted } from "@/lib/interviewSubmissionLock";
 import {
   PlayCircle,
   CheckCircle,
@@ -32,6 +33,7 @@ export interface InterviewFlowProps {
   sessionId: string;
   candidateId: string;
   jobRole: string;
+  scheduledAt?: string | null;
   onBack: () => void;
 }
 
@@ -39,6 +41,7 @@ export const InterviewFlow: React.FC<InterviewFlowProps> = ({
   sessionId,
   candidateId,
   jobRole,
+  scheduledAt,
   onBack,
 }) => {
   const { toast } = useToast();
@@ -72,7 +75,20 @@ export const InterviewFlow: React.FC<InterviewFlowProps> = ({
       ? ((currentIndex + 1) / sortedQuestions.length) * 100
       : 0;
 
+  const scheduledMs = scheduledAt ? new Date(scheduledAt).getTime() : NaN;
+  const isScheduledInFuture = Number.isFinite(scheduledMs) && scheduledMs > Date.now();
+
   const startInterview = () => {
+    if (isScheduledInFuture) {
+      toast({
+        title: "Too early",
+        description: scheduledAt
+          ? `This interview starts at ${new Date(scheduledAt).toLocaleString()}.`
+          : "This interview is scheduled for later.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (sortedQuestions.length === 0) return;
     setPhase("in_progress");
     setCurrentIndex(0);
@@ -111,6 +127,8 @@ export const InterviewFlow: React.FC<InterviewFlowProps> = ({
       } else {
         setSubmittingFinal(true);
         try {
+          // Lock locally so candidates can't reattempt/cancel after submission.
+          markInterviewSubmitted(sessionId);
           const out = await submitInterviewForScoring(sessionId);
           setFinalScore(out.score ?? null);
           setPhase("completed");
@@ -125,6 +143,11 @@ export const InterviewFlow: React.FC<InterviewFlowProps> = ({
                 : "Your interview was processed.",
           });
         } catch (e) {
+          // Even if scoring fails, the attempt is considered final per product rules.
+          setPhase("completed");
+          await queryClient.invalidateQueries({
+            queryKey: ["candidate-interviews", candidateId],
+          });
           toast({
             title: "Could not finalize interview",
             description: e instanceof Error ? e.message : "Submission failed.",
@@ -216,14 +239,27 @@ export const InterviewFlow: React.FC<InterviewFlowProps> = ({
                 <ul className="space-y-2 text-muted-foreground text-sm">
                   <li>Answer each question clearly.</li>
                   <li>After the last answer, the interview is submitted for scoring.</li>
+                  {scheduledAt && (
+                    <li>
+                      Scheduled start:{" "}
+                      <span className="font-medium text-foreground">
+                        {new Date(scheduledAt).toLocaleString()}
+                      </span>
+                    </li>
+                  )}
                 </ul>
               </div>
 
               <div className="text-center">
-                <Button variant="hero" size="xl" onClick={startInterview}>
+                <Button variant="hero" size="xl" onClick={startInterview} disabled={isScheduledInFuture}>
                   <PlayCircle className="mr-2 h-5 w-5" />
-                  Start interview
+                  {isScheduledInFuture ? "Scheduled" : "Start interview"}
                 </Button>
+                {isScheduledInFuture && scheduledAt && (
+                  <p className="text-sm text-muted-foreground mt-3">
+                    You can start this interview at {new Date(scheduledAt).toLocaleString()}.
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -251,9 +287,12 @@ export const InterviewFlow: React.FC<InterviewFlowProps> = ({
                   <span className="text-4xl font-bold">{finalScore}</span>
                 </div>
               )}
-              {finalScore != null && (
-                <p className="text-2xl font-semibold">
-                  Final score: {finalScore}%
+              {finalScore != null ? (
+                <p className="text-2xl font-semibold">Final score: {finalScore}%</p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  This interview has been submitted. Scoring may take a moment, or the server may
+                  have rejected scoring. You cannot attempt this interview again.
                 </p>
               )}
               <Button variant="hero" size="lg" onClick={onBack}>

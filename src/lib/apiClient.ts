@@ -66,3 +66,15 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+/** Returns parsed JSON if present; otherwise `undefined`. */
+export async function apiDelete<T = unknown>(path: string): Promise<T | undefined> {
+  const res = await fetch(joinUrl(path), { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(await formatError(res));
+  }
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return undefined;
+  // Some delete endpoints return `{}`; keep it typed but optional.
+  return (await res.json()) as T;
+}

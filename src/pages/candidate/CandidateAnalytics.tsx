@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { getSession } from "@/lib/authStorage";
 import { fetchCandidateInterviews, isBackendUserId } from "@/lib/dashboardApi";
+import { isInterviewSubmitted } from "@/lib/interviewSubmissionLock";
 import { Award, Calendar, Star } from "lucide-react";
 
 export default function CandidateAnalytics() {
@@ -18,6 +19,9 @@ export default function CandidateAnalytics() {
 
   const interviewRows = interviewsQuery.data ?? [];
   const scored = interviewRows.filter((i) => i.score != null);
+  const submittedUnscored = useMemo(() => {
+    return interviewRows.filter((i) => i.score == null && isInterviewSubmitted(i.id));
+  }, [interviewRows]);
   const avg = useMemo(() => {
     return scored.length > 0
       ? Math.round(scored.reduce((acc, i) => acc + (i.score ?? 0), 0) / scored.length)
@@ -77,7 +81,7 @@ export default function CandidateAnalytics() {
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Completed</p>
                 <p className="text-3xl font-bold text-success tabular-nums">
-                  {interviewsQuery.isPending ? "…" : scored.length}
+                  {interviewsQuery.isPending ? "…" : scored.length + submittedUnscored.length}
                 </p>
               </div>
               <Award className="h-8 w-8 text-success" />

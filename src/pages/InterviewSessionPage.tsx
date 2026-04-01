@@ -1,6 +1,7 @@
 import { InterviewFlow } from "@/components/InterviewFlow";
 import { getSession } from "@/lib/authStorage";
 import { fetchInterviewById } from "@/lib/dashboardApi";
+import { isInterviewSubmitted } from "@/lib/interviewSubmissionLock";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -95,11 +96,29 @@ const InterviewSessionPage = () => {
     );
   }
 
+  if (isInterviewSubmitted(interview.id)) {
+    return (
+      <div className="min-h-screen p-6 flex flex-col items-center justify-center gap-4">
+        <p className="text-center text-muted-foreground">
+          This interview has already been submitted and cannot be attempted again.
+        </p>
+        <button
+          type="button"
+          className="text-primary underline"
+          onClick={() => navigate("/candidate/interviews", { replace: true })}
+        >
+          Back to interviews
+        </button>
+      </div>
+    );
+  }
+
   return (
     <InterviewFlow
       sessionId={sessionId}
       candidateId={session.profile.id}
       jobRole={jobRole}
+      scheduledAt={interview.time}
       onBack={() => navigate("/candidate/interviews", { replace: true })}
     />
   );

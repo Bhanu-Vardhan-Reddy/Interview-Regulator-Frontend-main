@@ -1,4 +1,4 @@
-import { apiGet, apiGetOptional, apiPost } from "@/lib/apiClient";
+import { apiDelete, apiGet, apiGetOptional, apiPost } from "@/lib/apiClient";
 
 /** Backend `InterviewOut` */
 export interface InterviewOut {
@@ -144,6 +144,11 @@ export async function submitInterviewForScoring(
   interviewId: string
 ): Promise<InterviewOut> {
   return apiPost<InterviewOut>(`/interview/submit/${interviewId}`, {});
+}
+
+/** Cancel/delete an interview session (hard delete on backend). */
+export async function deleteInterview(interviewId: string): Promise<void> {
+  await apiDelete(`/interview/${interviewId}`);
 }
 
 export async function fetchCandidateAnswers(
